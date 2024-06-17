@@ -5,20 +5,89 @@ import android.media.MediaScannerConnection
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.View
 import android.widget.*
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileWriter
 import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.ceil
 
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.Response
+
 
 class Util (appContext: Context) {
     private val myBird = BirdNet(appContext)
     private val ctx    = appContext
+
+    private val apiURL = "http://smartcycling.sysnet.ucsd.edu:8000/upload/"
+    private val job = SupervisorJob()
+    private val scope = CoroutineScope(Dispatchers.IO + job)
+
+    /*
+        Send csv file with outputs of birdnet to the server through network http request
+    */
+    private fun uploadData(filePath: String) {
+        val client = OkHttpClient()
+        val mediaString = filePath.substringAfterLast(".", "")
+
+        // Create the request body
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("sensor_id", "foo")
+            .addFormDataPart("timestamp", "foo")
+            .addFormDataPart("lat", "foo")
+            .addFormDataPart("lon", "foo")
+            .addFormDataPart("accuracy", "foo")
+            .addFormDataPart("battery", "foo")
+            .addFormDataPart("temperature", "foo")
+            .addFormDataPart(
+                "csv_file",
+                filePath,                   // why use outputfilepath instead of audio file path
+                File(filePath).asRequestBody(mediaString.toMediaType())
+            )
+            .build()
+
+        // Add the headers and build request
+        val request = apiURL.let {
+            Request.Builder()
+                .url(it)
+                .addHeader("accept", "application/json")
+                .addHeader("Accept-Encoding", "identity")
+                .post(requestBody)
+                .build()
+        }
+
+        // Launch request in coroutine, look for response
+        scope.launch {
+            val response: Response? = request.let {
+                try {
+                    client.newCall(it).execute()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            if (response != null) {
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    Log.i("test", responseBody.toString())
+                } else {
+                    Log.e("test", "Failed to upload data ${response.code}")
+                }
+            }
+        }
+    }
 
     /*
      * Run birdnet on found files without outputting to screen
@@ -37,8 +106,12 @@ class Util (appContext: Context) {
                 val data = myBird.runTest(file.data)
                 // Only process data if it exists
                 if (data != null && data.size != 0) {
-                    val secondsList = arrayListOf<String>()     // build list of chunks for seconds
-                    saveToFile(data, secondsList, ctx.filesDir.toString(), file.title)    // save results from data to file
+                    // build list of chunks for seconds
+                    val secondsList = arrayListOf<String>()
+                    // save results from data to file
+                    val csvFile = saveToFile(data, secondsList, ctx.filesDir.toString(), file.title)
+                    // upload to server via network
+                    uploadData(csvFile)
                 }
             }
         }
@@ -136,7 +209,7 @@ class Util (appContext: Context) {
     private fun saveToFile(data: ArrayList<ArrayList<Pair<String, Float>>>,
                            secondsList: ArrayList<String>,
                            filesDir: String,
-                           path: String)
+                           path: String): String
     {
         try {
             File("$filesDir/$path-result.csv").printWriter().use { out ->
@@ -148,9 +221,12 @@ class Util (appContext: Context) {
                     }
                 }
             }
+
+            return "$filesDir/$path-result.csv"
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        return ""
     }
 
     /*
