@@ -52,7 +52,7 @@ class Util (appContext: Context) {
             .addFormDataPart("battery", "foo")
             .addFormDataPart("temperature", "foo")
             .addFormDataPart(
-                "csv_file",
+                "audio_file",
                 filePath,                   // why use outputfilepath instead of audio file path
                 File(filePath)
             )
