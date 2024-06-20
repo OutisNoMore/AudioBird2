@@ -54,7 +54,7 @@ class Util (appContext: Context) {
             .addFormDataPart(
                 "csv_file",
                 filePath,                   // why use outputfilepath instead of audio file path
-                File(filePath).asRequestBody(mediaString.toMediaType())
+                File(filePath)
             )
             .build()
 
